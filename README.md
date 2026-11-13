@@ -6,7 +6,7 @@ DocuEase is an intelligent web application designed to help ordinary citizens, s
 
 ## 📌 Project Overview
 - **Phase 0 (Completed)**: System architecture, technical documentation (PRD & Architecture with Mermaid diagrams), backend health API, and responsive React landing page with document upload placeholder.
-- **Phase 1 (Upcoming)**: Multi-format document ingestion (PDF, TXT, PNG, JPG) using PyMuPDF and Tesseract OCR.
+- **Phase 1 (Completed)**: Multi-format document ingestion (PDF, TXT, PNG, JPG) using PyMuPDF and Tesseract OCR, live `/api/extract` endpoint, and interactive document processing UI.
 - **Phase 2 (Upcoming)**: Gemini AI plain-language simplification, dual-pane comparative viewer, and automated terminology glossary.
 
 ---
@@ -109,7 +109,13 @@ docuease/
    }
    ```
 
-7. Run automated backend tests:
+7. Test document text extraction:
+   ```bash
+   curl -F "file=@sample.txt" http://127.0.0.1:5000/api/extract
+   ```
+   **Supported file formats:** `.pdf`, `.txt`, `.png`, `.jpg`, `.jpeg` (Max 10 MB).
+
+8. Run automated backend tests:
    ```bash
    pytest tests/
    ```

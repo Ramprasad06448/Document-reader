@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
-import UploadPlaceholder from './components/UploadPlaceholder';
+import DocumentProcessor from './components/DocumentProcessor';
 import FeaturesOverview from './components/FeaturesOverview';
 import { checkHealth } from './services/api';
 
@@ -80,9 +80,9 @@ export default function App() {
           </div>
         </section>
 
-        {/* Document Ingestion Placeholder */}
+        {/* Document Ingestion & Extraction */}
         <div className="container">
-          <UploadPlaceholder />
+          <DocumentProcessor />
         </div>
 
         {/* Platform Capabilities */}
@@ -99,7 +99,7 @@ export default function App() {
             <span className="footer-copy">© 2026 DocuEase. Built with React, Flask & Tesseract OCR.</span>
           </div>
           <div className="footer-right">
-            <span className="footer-phase">Phase 0: Foundation & Architecture</span>
+            <span className="footer-phase">Phase 1: Ingestion & OCR Processing</span>
           </div>
         </div>
       </footer>
