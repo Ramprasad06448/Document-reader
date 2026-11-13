@@ -1,16 +1,24 @@
 import React, { useState } from 'react';
-import { extractDocument } from '../services/api';
+import { extractDocument, simplifyText, simplifyDocument } from '../services/api';
+import DualPaneViewer from './DualPaneViewer';
 
 const ALLOWED_EXTENSIONS = ['pdf', 'txt', 'png', 'jpg', 'jpeg'];
 const MAX_SIZE_MB = 10;
 
 export default function DocumentProcessor() {
+  const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'text'
   const [file, setFile] = useState(null);
+  const [rawText, setRawText] = useState('');
+  const [level, setLevel] = useState('plain_language');
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStage, setProcessingStage] = useState('');
   const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);
-  const [copied, setCopied] = useState(false);
+
+  // Results state
+  const [simplifiedResult, setSimplifiedResult] = useState(null);
+  const [extractOnlyResult, setExtractOnlyResult] = useState(null);
+  const [copiedExtract, setCopiedExtract] = useState(false);
 
   const validateFile = (selectedFile) => {
     if (!selectedFile) return false;
@@ -34,7 +42,8 @@ export default function DocumentProcessor() {
     const selected = e.target.files && e.target.files[0];
     if (selected && validateFile(selected)) {
       setFile(selected);
-      setResult(null);
+      setExtractOnlyResult(null);
+      setSimplifiedResult(null);
     }
   };
 
@@ -54,58 +63,117 @@ export default function DocumentProcessor() {
     const dropped = e.dataTransfer.files && e.dataTransfer.files[0];
     if (dropped && validateFile(dropped)) {
       setFile(dropped);
-      setResult(null);
+      setExtractOnlyResult(null);
+      setSimplifiedResult(null);
     }
   };
 
-  const handleExtract = async () => {
+  // Phase 1 Extract Only
+  const handleExtractOnly = async () => {
     if (!file) return;
 
     setIsProcessing(true);
+    setProcessingStage('Extracting text via PyMuPDF / Tesseract OCR...');
     setError(null);
 
     try {
       const data = await extractDocument(file);
       if (data.status === 'success') {
-        setResult(data);
+        setExtractOnlyResult(data);
       } else {
-        setError(data.message || 'Failed to extract document.');
+        setError(data.message || 'Failed to extract text.');
       }
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Network error occurred while communicating with the server.';
+      const msg = err.response?.data?.message || err.message || 'Network error occurred.';
       setError(`Extraction failed: ${msg}`);
     } finally {
       setIsProcessing(false);
+      setProcessingStage('');
     }
   };
 
-  const handleCopy = () => {
-    if (!result?.extracted_text) return;
-    navigator.clipboard.writeText(result.extracted_text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+  // Phase 2 Full Simplification
+  const handleSimplify = async () => {
+    setIsProcessing(true);
+    setError(null);
+    setExtractOnlyResult(null);
+
+    try {
+      if (activeTab === 'upload') {
+        if (!file) {
+          setError('Please select or drop a file to simplify.');
+          setIsProcessing(false);
+          return;
+        }
+        setProcessingStage('Ingesting document & extracting text layers...');
+        const res = await simplifyDocument(file, level);
+        if (res.status === 'success') {
+          setSimplifiedResult(res);
+        } else {
+          setError(res.message || 'Simplification failed.');
+        }
+      } else {
+        if (!rawText.trim()) {
+          setError('Please paste or type the text you wish to simplify.');
+          setIsProcessing(false);
+          return;
+        }
+        setProcessingStage('Analyzing document structure with AI Simplification Engine...');
+        const res = await simplifyText(rawText.trim(), level);
+        if (res.status === 'success') {
+          setSimplifiedResult(res);
+        } else {
+          setError(res.message || 'Simplification failed.');
+        }
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Network error.';
+      setError(`Simplification failed: ${msg}`);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStage('');
+    }
+  };
+
+  const handleSimplifyExtracted = async () => {
+    if (!extractOnlyResult?.extracted_text) return;
+    setIsProcessing(true);
+    setProcessingStage('Simplifying extracted text with AI Plain-Language Engine...');
+    setError(null);
+
+    try {
+      const res = await simplifyText(extractOnlyResult.extracted_text, level);
+      if (res.status === 'success') {
+        res.document_metadata = {
+          filename: extractOnlyResult.filename,
+          page_count: extractOnlyResult.page_count,
+          file_extension: extractOnlyResult.file_extension,
+        };
+        setSimplifiedResult(res);
+        setExtractOnlyResult(null);
+      } else {
+        setError(res.message || 'Simplification failed.');
+      }
+    } catch (err) {
+      setError(`Simplification failed: ${err.message}`);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStage('');
+    }
   };
 
   const handleReset = () => {
     setFile(null);
-    setResult(null);
+    setRawText('');
+    setSimplifiedResult(null);
+    setExtractOnlyResult(null);
     setError(null);
   };
 
-  const getMethodBadge = (method) => {
-    switch (method) {
-      case 'ocr_image':
-        return { label: 'Tesseract OCR', color: 'badge-ocr' };
-      case 'digital_pdf':
-        return { label: 'PyMuPDF Digital', color: 'badge-digital' };
-      case 'hybrid_pdf_ocr':
-        return { label: 'Hybrid PyMuPDF + OCR', color: 'badge-hybrid' };
-      case 'plain_text':
-        return { label: 'Plain Text Stream', color: 'badge-plain' };
-      default:
-        return { label: method || 'Standard', color: 'badge-plain' };
-    }
-  };
+  // If simplified result exists, display DualPaneViewer
+  if (simplifiedResult) {
+    return <DualPaneViewer data={simplifiedResult} onReset={handleReset} />;
+  }
 
   return (
     <section className="processor-section">
@@ -117,150 +185,221 @@ export default function DocumentProcessor() {
         </div>
       )}
 
-      {!result ? (
-        <div className="upload-card">
-          <div
-            className={`dropzone ${isDragging ? 'dragging' : ''} ${isProcessing ? 'disabled' : ''}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            <div className="dropzone-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-            </div>
+      {/* Input Mode Navigation Tabs */}
+      <div className="tab-bar">
+        <button
+          className={`tab-btn ${activeTab === 'upload' ? 'active' : ''}`}
+          onClick={() => setActiveTab('upload')}
+          disabled={isProcessing}
+        >
+          📁 Upload Document (PDF, TXT, PNG, JPG)
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'text' ? 'active' : ''}`}
+          onClick={() => setActiveTab('text')}
+          disabled={isProcessing}
+        >
+          ✍️ Direct Text Paste
+        </button>
+      </div>
 
-            <h3 className="dropzone-title">Upload Document for Text Extraction</h3>
-            <p className="dropzone-subtitle">
-              Drag and drop your file here, or browse from your device
-            </p>
-
-            <label className="browse-button" htmlFor="doc-input">
-              Choose Document
-              <input
-                id="doc-input"
-                type="file"
-                accept=".pdf,.txt,.png,.jpg,.jpeg"
-                onChange={handleFileChange}
-                disabled={isProcessing}
-                style={{ display: 'none' }}
-              />
-            </label>
-
-            <div className="supported-formats">
-              <span className="format-tag">.PDF</span>
-              <span className="format-tag">.TXT</span>
-              <span className="format-tag">.PNG</span>
-              <span className="format-tag">.JPG</span>
-              <span className="format-note">Max 10 MB</span>
-            </div>
-          </div>
-
-          {file && (
-            <div className="file-preview-card">
-              <div className="file-meta">
-                <div className="file-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                </div>
-                <div className="file-details">
-                  <span className="file-name">{file.name}</span>
-                  <span className="file-size">
-                    {(file.size / 1024).toFixed(1)} KB • Ready for extraction
-                  </span>
-                </div>
-              </div>
-
-              <div className="file-actions">
-                <button
-                  className="extract-btn"
-                  onClick={handleExtract}
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? (
-                    <>
-                      <span className="btn-spinner"></span>
-                      Extracting Text...
-                    </>
-                  ) : (
-                    <>
-                      <span>⚡</span> Extract Document Text
-                    </>
-                  )}
-                </button>
-                <button
-                  className="remove-btn"
-                  onClick={handleReset}
-                  disabled={isProcessing}
-                  title="Remove selected file"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="upload-note">
-            <p>
-              🔍 <strong>Phase 1 Text Extraction Active:</strong> Utilizing PyMuPDF for native PDF text layers
-              and official Tesseract OCR for scanned documents and PNG/JPG images.
-            </p>
+      <div className="upload-card">
+        {/* Simplification Level Bar */}
+        <div className="level-bar">
+          <span className="level-label">Simplification Level:</span>
+          <div className="level-options">
+            <button
+              className={`level-pill ${level === 'plain_language' ? 'active' : ''}`}
+              onClick={() => setLevel('plain_language')}
+            >
+              Everyday Plain English
+            </button>
+            <button
+              className={`level-pill ${level === 'executive_summary' ? 'active' : ''}`}
+              onClick={() => setLevel('executive_summary')}
+            >
+              Executive Summary
+            </button>
+            <button
+              className={`level-pill ${level === 'middle_school' ? 'active' : ''}`}
+              onClick={() => setLevel('middle_school')}
+            >
+              Elementary / ESL
+            </button>
           </div>
         </div>
-      ) : (
-        /* Results View */
-        <div className="results-card">
-          <div className="results-header">
-            <div className="results-header-left">
-              <h3 className="results-title">Extracted Document Content</h3>
-              <div className="meta-pills">
-                <span className="meta-pill">📄 {result.filename}</span>
-                <span className="meta-pill">💾 {result.file_size_formatted}</span>
-                <span className="meta-pill">📑 {result.page_count} page{result.page_count !== 1 ? 's' : ''}</span>
-                <span className="meta-pill">🔤 {result.char_count.toLocaleString()} characters</span>
-                <span className="meta-pill">📝 {result.word_count.toLocaleString()} words</span>
-                <span className={`method-badge ${getMethodBadge(result.extraction_method).color}`}>
-                  {getMethodBadge(result.extraction_method).label}
-                </span>
+
+        {activeTab === 'upload' ? (
+          <>
+            <div
+              className={`dropzone ${isDragging ? 'dragging' : ''} ${isProcessing ? 'disabled' : ''}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <div className="dropzone-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </div>
+
+              <h3 className="dropzone-title">Upload Complex Document</h3>
+              <p className="dropzone-subtitle">
+                Drag and drop your file here, or click to browse
+              </p>
+
+              <label className="browse-button" htmlFor="doc-input">
+                Select File
+                <input
+                  id="doc-input"
+                  type="file"
+                  accept=".pdf,.txt,.png,.jpg,.jpeg"
+                  onChange={handleFileChange}
+                  disabled={isProcessing}
+                  style={{ display: 'none' }}
+                />
+              </label>
+
+              <div className="supported-formats">
+                <span className="format-tag">.PDF</span>
+                <span className="format-tag">.TXT</span>
+                <span className="format-tag">.PNG</span>
+                <span className="format-tag">.JPG</span>
+                <span className="format-note">Max 10 MB</span>
               </div>
             </div>
 
-            <div className="results-header-actions">
-              <button className={`action-btn copy-btn ${copied ? 'copied' : ''}`} onClick={handleCopy}>
-                {copied ? '✓ Copied!' : '📋 Copy Text'}
-              </button>
-              <button className="action-btn secondary-btn" onClick={handleReset}>
-                🔄 Extract Another
-              </button>
-            </div>
-          </div>
+            {file && (
+              <div className="file-preview-card">
+                <div className="file-meta">
+                  <div className="file-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  </div>
+                  <div className="file-details">
+                    <span className="file-name">{file.name}</span>
+                    <span className="file-size">
+                      {(file.size / 1024).toFixed(1)} KB • Ready for processing
+                    </span>
+                  </div>
+                </div>
 
-          <div className="extracted-content-box">
-            {result.extracted_text ? (
-              <pre className="extracted-text-body">{result.extracted_text}</pre>
-            ) : (
-              <div className="empty-text-notice">
-                <p>⚠️ No readable text was detected in this document.</p>
+                <div className="file-actions">
+                  <button
+                    className="simplify-btn-primary"
+                    onClick={handleSimplify}
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? (
+                      <>
+                        <span className="btn-spinner"></span>
+                        {processingStage || 'Processing...'}
+                      </>
+                    ) : (
+                      <>
+                        <span>✨</span> Simplify with AI
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    className="extract-btn-secondary"
+                    onClick={handleExtractOnly}
+                    disabled={isProcessing}
+                  >
+                    Extract Text Only
+                  </button>
+
+                  <button
+                    className="remove-btn"
+                    onClick={handleReset}
+                    disabled={isProcessing}
+                    title="Remove selected file"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             )}
-          </div>
-
-          <div className="phase2-teaser">
-            <div className="teaser-content">
-              <span className="teaser-badge">Phase 2 Next</span>
-              <p className="teaser-text">
-                <strong>Ready for AI Simplification:</strong> In Phase 2, this extracted text will be simplified
-                into plain language with executive summaries and a terminology glossary powered by Google Gemini.
-              </p>
+          </>
+        ) : (
+          /* Text Paste Tab */
+          <div className="text-paste-zone">
+            <textarea
+              className="text-input-area"
+              rows="8"
+              placeholder="Paste contract clauses, medical records, policy terms, or technical text here..."
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              disabled={isProcessing}
+            ></textarea>
+            <div className="paste-actions">
+              <span className="char-counter">
+                {rawText.trim().split(/\s+/).filter(Boolean).length} words • {rawText.length} characters
+              </span>
+              <button
+                className="simplify-btn-primary"
+                onClick={handleSimplify}
+                disabled={isProcessing || !rawText.trim()}
+              >
+                {isProcessing ? (
+                  <>
+                    <span className="btn-spinner"></span>
+                    {processingStage || 'Simplifying...'}
+                  </>
+                ) : (
+                  <>
+                    <span>✨</span> Simplify Text with AI
+                  </>
+                )}
+              </button>
             </div>
           </div>
+        )}
+
+        {/* Phase 1 Extract Only Results View */}
+        {extractOnlyResult && (
+          <div className="extract-only-container">
+            <div className="extract-header">
+              <div className="extract-meta">
+                <h4>Extracted Text ({extractOnlyResult.word_count} words)</h4>
+                <span className="method-pill">{extractOnlyResult.extraction_method}</span>
+              </div>
+              <div className="extract-actions">
+                <button
+                  className="simplify-btn-primary small"
+                  onClick={handleSimplifyExtracted}
+                  disabled={isProcessing}
+                >
+                  ✨ Simplify This Extracted Text
+                </button>
+                <button
+                  className="copy-btn small"
+                  onClick={() => {
+                    navigator.clipboard.writeText(extractOnlyResult.extracted_text);
+                    setCopiedExtract(true);
+                    setTimeout(() => setCopiedExtract(false), 2000);
+                  }}
+                >
+                  {copiedExtract ? '✓ Copied' : '📋 Copy Text'}
+                </button>
+              </div>
+            </div>
+            <pre className="extracted-text-body">{extractOnlyResult.extracted_text}</pre>
+          </div>
+        )}
+
+        <div className="upload-note">
+          <p>
+            ✨ <strong>Full Pipeline Active:</strong> Ingest native PDFs (PyMuPDF), scanned files/images (Tesseract OCR),
+            and simplify with Google Gemini plain-language AI synthesis with synchronized dual-pane comparison.
+          </p>
         </div>
-      )}
+      </div>
     </section>
   );
 }

@@ -99,7 +99,7 @@ export default function App() {
             <span className="footer-copy">© 2026 DocuEase. Built with React, Flask & Tesseract OCR.</span>
           </div>
           <div className="footer-right">
-            <span className="footer-phase">Phase 1: Ingestion & OCR Processing</span>
+            <span className="footer-phase">Phase 2: AI Simplification & Dual-Pane Viewer Active</span>
           </div>
         </div>
       </footer>

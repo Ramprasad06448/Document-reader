@@ -7,7 +7,7 @@ DocuEase is an intelligent web application designed to help ordinary citizens, s
 ## 📌 Project Overview
 - **Phase 0 (Completed)**: System architecture, technical documentation (PRD & Architecture with Mermaid diagrams), backend health API, and responsive React landing page with document upload placeholder.
 - **Phase 1 (Completed)**: Multi-format document ingestion (PDF, TXT, PNG, JPG) using PyMuPDF and Tesseract OCR, live `/api/extract` endpoint, and interactive document processing UI.
-- **Phase 2 (Upcoming)**: Gemini AI plain-language simplification, dual-pane comparative viewer, and automated terminology glossary.
+- **Phase 2 (Completed)**: Google Gemini AI plain-language simplification, Dual-Pane synchronized comparative viewer, Executive Summary generator, and interactive Terminology Glossary with intelligent rule-based fallback.
 
 ---
 
@@ -115,7 +115,16 @@ docuease/
    ```
    **Supported file formats:** `.pdf`, `.txt`, `.png`, `.jpg`, `.jpeg` (Max 10 MB).
 
-8. Run automated backend tests:
+8. Test AI document simplification:
+   ```bash
+   # JSON payload mode
+   curl -X POST -H "Content-Type: application/json" -d "{\"text\": \"In the event that either party breaches this agreement, liquidated damages shall apply.\"}" http://127.0.0.1:5000/api/simplify
+
+   # Direct document upload mode
+   curl -F "file=@sample.pdf" http://127.0.0.1:5000/api/simplify
+   ```
+
+9. Run automated backend tests (16 tests):
    ```bash
    pytest tests/
    ```
